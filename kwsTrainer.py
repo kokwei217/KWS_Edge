@@ -3,22 +3,26 @@ import pathlib
 import os.path
 import sys
 import numpy as np
-import tensorflow as tf
 import random
+import json
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from tensorflow.keras.layers.experimental import preprocessing
+
 import dataset
 import preprocessor
-import json
-from tensorflow.keras.layers.experimental import preprocessing
-from tensorflow.keras import layers
-import matplotlib.pyplot as plt
+import models
+from json_data_loader import load_json_data
 
 WANTED_WORDS = ["yes", "no", "up", "down",
                 "left", "right", "on", "off", "stop", "go"]
 DATA_DIR = "C:/SpeechCommandV2/"
 SR = 16000
-INPUT_TYPE = "mfcc"
+INPUT_TYPE = "mfcc"  # logmel, mfcc, raw
 LEARNING_RATE = 0.0001
-EPOCHS = 40
+EPOCHS = 50
 BATCH_SIZE = 32
 PATIENCE = 5
 MODEL_SETTINGS = {}
@@ -41,66 +45,25 @@ def build_model(input_shape, X_train, loss="sparse_categorical_crossentropy", le
 
     :return model: TensorFlow model
     """
-    # build network architecture using convolutional layers
-    model = tf.keras.models.Sequential()
+    # select model architecture
+    model = models.VGG16(input_shape, num_layers=num_labels)
+    # model = models.simple_cnn(input_shape, num_layers=num_labels)
+    # model = cnn_tutorial(input_shape, X_train, num_layers=num_labels)
 
-    # 1st conv layer
-    model.add(tf.keras.layers.Conv2D(64, (3, 3), activation='relu', input_shape=input_shape,
-                                     kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.MaxPooling2D(
-        (3, 3), strides=(2, 2), padding='same'))
+    # learning rate decay
+    lr_decay = keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=learning_rate,
+        decay_steps=10000,
+        decay_rate=0.9)
 
-    # 2nd conv layer
-    model.add(tf.keras.layers.Conv2D(32, (3, 3), activation='relu',
-                                     kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.MaxPooling2D(
-        (3, 3), strides=(2, 2), padding='same'))
-
-    # 3rd conv layer
-    model.add(tf.keras.layers.Conv2D(32, (2, 2), activation='relu',
-                                     kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.MaxPooling2D(
-        (2, 2), strides=(2, 2), padding='same'))
-
-    # flatten output and feed into dense layer
-    model.add(tf.keras.layers.Flatten())
-    model.add(tf.keras.layers.Dense(64, activation='relu'))
-    tf.keras.layers.Dropout(0.3)
-
-    # softmax output layer
-    model.add(tf.keras.layers.Dense(12, activation='softmax'))
-
-    optimiser = tf.optimizers.Adam(learning_rate=learning_rate)
-    # todo remove above model
-    # tf audio tutoorial model
-    # norm_layer = preprocessing.Normalization()
-    # norm_layer.adapt(X_train)
-    # model = tf.keras.models.Sequential([
-    #     layers.Input(shape=input_shape),
-    #     # preprocessing.Resizing(32, 32),
-    #     # norm_layer,
-    #     layers.Conv2D(32, 3, activation='relu'),
-    #     layers.Conv2D(64, 3, activation='relu'),
-    #     layers.MaxPooling2D(),
-    #     layers.Dropout(0.25),
-    #     layers.Flatten(),
-    #     layers.Dense(128, activation='relu'),
-    #     layers.Dropout(0.5),
-    #     layers.Dense(num_labels),
-    # ])
-    # print model parameters on console
     model.summary()
-
     # compile model
+    optimiser = tf.optimizers.Adam(learning_rate=lr_decay)
     model.compile(optimizer=optimiser,
                   #   loss=loss,
                   loss=tf.keras.losses.SparseCategoricalCrossentropy(
                       from_logits=True),
                   metrics=["accuracy"])
-
     return model
 
 
@@ -163,24 +126,29 @@ def plot_history(history):
     plt.show()
 
 
+def get_data(audio_dataset, fromJson=False):
+    if (fromJson):
+        return load_json_data()
+    else:
+        audio_processor = preprocessor.AudioProcessor(
+            audio_dataset,
+            bg_noise_dir=BACKGROUND_NOISE_SILENCE_DIR,
+            bg_noise_train_dir=BACKGROUND_NOISE_TRAIN_DIR,
+            sr=SR,
+            input_type=INPUT_TYPE
+        )
+        return audio_processor.get_processed_dataset(INPUT_TYPE)
+
+
 def main():
     audio_dataset = dataset.AudioDataset(
         data_dir=DATA_DIR,
         model_settings=MODEL_SETTINGS,
         wanted_words=WANTED_WORDS
     )
-    audio_processor = preprocessor.AudioProcessor(
-        audio_dataset,
-        bg_noise_dir=BACKGROUND_NOISE_SILENCE_DIR,
-        bg_noise_train_dir=BACKGROUND_NOISE_TRAIN_DIR,
-        sr=SR,
-        input_type=INPUT_TYPE
-    )
     X_train, X_validation, X_test, y_train, y_validation, y_test = \
-        audio_processor.get_processed_dataset("mfcc")
+        get_data(audio_dataset, fromJson=True)
     input_shape = (X_train.shape[1], X_train.shape[2], 1)
-    X_test = X_test.reshape(
-        len(X_test), input_shape[0], input_shape[1], input_shape[2])
     model = build_model(input_shape, X_train, learning_rate=LEARNING_RATE)
 
     # train network
@@ -191,7 +159,8 @@ def main():
     plot_history(history)
 
     # evaluate network on test set
-
+    X_test = X_test.reshape(
+        len(X_test), input_shape[0], input_shape[1], input_shape[2])
     test_loss, test_acc = model.evaluate(X_test, y_test)
     print("\nTest loss: {}, test accuracy: {}".format(test_loss, 100*test_acc))
 

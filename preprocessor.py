@@ -137,10 +137,7 @@ class AudioProcessor(object):
         word_list = self.audio_dataset.words_list
         for ds in ["training", "validation", "testing"]:
             print("processing wav file... currently at " + ds)
-            i = 0
             for data in data_index[ds]:
-                i+=1 
-                if i> 10:break
                 #label = word_list[word_to_index[data["label"]]]
                 label = word_to_index[data["label"]]
 
