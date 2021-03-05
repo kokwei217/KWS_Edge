@@ -31,12 +31,14 @@ WANTED_WORDS = [
 DATA_DIR = "C:/SpeechCommandV2/"
 SR = 16000
 INPUT_TYPE = "mfcc"  # logmel, mfcc, raw
-LEARNING_RATE = 0.0001
+LEARNING_RATE = [0.0005, 0.0001, 0.00002]
+BOUNDARIES = [10000, 20000]
 EPOCHS = 100
 BATCH_SIZE = 32
 PATIENCE = 5
 MODEL_SETTINGS = {}
-RANDOM_SEED = 2177
+RANDOM_SEED = 217
+ARCH = "VGG16"
 SAVED_MODEL_PATH = "model.h5"
 num_labels = 12
 FROM_JSON = False
@@ -48,34 +50,34 @@ BACKGROUND_NOISE_TRAIN_DIR = str(CWD) + '/background_noise_train/'
 BACKGROUND_NOISE_SILENCE_DIR = str(CWD) + '/background_silence/'
 
 
-def build_model(input_shape, X_train, loss="sparse_categorical_crossentropy", learning_rate=0.0001):
+def build_model(input_shape, X_train, arch="VGG16", loss="sparse_categorical_crossentropy", learning_rate=[0.0005, 0.0001, 0.00002]):
     """Build neural network using keras.
 
     :param input_shape (tuple): Shape of array representing a sample train. E.g.: (44, 13, 1)
+    :param arch: model architecture. (VGG16, VGG16_twist, VGG11)
     :param loss (str): Loss function to use
     :param learning_rate (float):
 
     :return model: TensorFlow model
     """
     # select model architecture
-    # model = models.VGG16(input_shape, num_layers=num_labels)
-    # model = models.simple_cnn(input_shape, num_layers=num_labels)
-    model = models.VGG11(input_shape, num_layers=num_labels)
-    # model = cnn_tutorial(input_shape, X_train, num_layers=num_labels)
+    if arch == "VGG16":
+        model = models.VGG16(input_shape, num_layers=num_labels)
+    elif arch = "VGG16_twist":
+        model = models.VGG16_twst(input_shape, num_layers=num_labels)
+    elif arch = "VGG11":
+        model = VGG11(input_shape, X_train, num_layers=num_labels)
 
-    # learning rate decay
-    lr_decay = keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=learning_rate,
-        decay_steps=10000,
-        decay_rate=0.9)
+    # learning rate constant decay
+    learning_rate_fn = keras.optimizers.schedules.PiecewiseConstantDecay(
+        BOUNDARIES, learning_rate)
 
     model.summary()
     # compile model
-    optimiser = tf.optimizers.Adam(learning_rate=learning_rate)
+    optimiser = tf.optimizers.Adam(learning_rate=learning_rate_fn)
     model.compile(optimizer=optimiser,
                   #   loss=loss,
-                  loss=tf.keras.losses.SparseCategoricalCrossentropy(
-                      from_logits=True),
+                  loss=tf.keras.losses.SparseCategoricalCrossentropy(),
                   metrics=["accuracy"])
     return model
 
@@ -163,25 +165,25 @@ def main():
     X_train, X_validation, X_test, y_train, y_validation, y_test = get_data(
         from_json=FROM_JSON)
     input_shape = (X_train.shape[1], X_train.shape[2], 1)
-    # input_shape = 123
-    # X_train = 1
-    model = build_model(input_shape, X_train, learning_rate=LEARNING_RATE)
+    
+    model = build_model(input_shape, X_train, arch=ARCH,
+                        learning_rate=LEARNING_RATE)
 
     # train network
-    # history = train(model, input_shape, EPOCHS, BATCH_SIZE, PATIENCE,
-    #                 X_train, y_train, X_validation, y_validation)
+    history = train(model, input_shape, EPOCHS, BATCH_SIZE, PATIENCE,
+                    X_train, y_train, X_validation, y_validation)
 
     # # plot accuracy/loss for training/validation set as a function of the epochs
-    # plot_history(history)
+    plot_history(history)
 
     # # evaluate network on test set
-    # X_test = X_test.reshape(
-    #     len(X_test), input_shape[0], input_shape[1], input_shape[2])
-    # test_loss, test_acc = model.evaluate(X_test, y_test)
-    # print("\nTest loss: {}, test accuracy: {}".format(test_loss, 100*test_acc))
+    X_test = X_test.reshape(
+        len(X_test), input_shape[0], input_shape[1], input_shape[2])
+    test_loss, test_acc = model.evaluate(X_test, y_test)
+    print("\nTest loss: {}, test accuracy: {}".format(test_loss, 100*test_acc))
 
     # save model
-    # model.save(SAVED_MODEL_PATH)
+    model.save(SAVED_MODEL_PATH)
 
 
 if __name__ == "__main__":
