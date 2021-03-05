@@ -21,6 +21,7 @@ from skimage.transform import resize
   4)
   """
 SR = 16000
+SILENCE_INDEX = 0
 JSON_TRAIN_PATH = "data_train.json"
 JSON_VALID_PATH = "data_valid.json"
 JSON_TEST_PATH = "data_test.json"
@@ -100,12 +101,13 @@ def preprocess_mel(data, sr, n_mels=40, normalization=False):
 
 
 class AudioProcessor(object):
-    def __init__(self, audio_dataset, bg_noise_dir, bg_noise_train_dir, sr, input_type):
+    def __init__(self, audio_dataset, bg_noise_dir, bg_noise_train_dir, sr, input_type, save_json=False):
         self.bg_noise_dir = bg_noise_dir
         self.bg_noise_train_dir = bg_noise_train_dir
         self.audio_dataset = audio_dataset
         self.sr = sr
         self.input_type = input_type
+        self.save_json = save_json
         self.load_background_noises()
         self.preprocess_data(input_type)
 
@@ -139,15 +141,16 @@ class AudioProcessor(object):
             print("processing wav file... currently at " + ds)
             for data in data_index[ds]:
                 #label = word_list[word_to_index[data["label"]]]
+                # we want label to be index instead of words
                 label = word_to_index[data["label"]]
 
-                wav = librosa.load(data["file"], self.sr)[0] if label != "silence" \
+                wav = librosa.load(data["file"], self.sr)[0] if label != SILENCE_INDEX \
                     else self.get_silent_wav(
                     num_noise=random.choice([0, 1, 2]),
                     max_ratio=random.choice([x / 10. for x in range(20)])
                 )
                 wav = pad_and_crop_frame(wav, self.sr)
-                if ds == "training" and label != "silent":
+                if ds == "training" and label != SILENCE_INDEX:
                     wav = self.augment_train_wav(wav)
                 if type == "mfcc":
                     wav_np = preprocess_mfcc(wav, self.sr)
@@ -162,15 +165,16 @@ class AudioProcessor(object):
                 self.processed_dataset[wav_key].append(wav_np)
                 self.processed_dataset[label_key].append(label)
                 # json file
-                # if ds == "training":
-                #     data_train_np[wav_key].append(wav_np.T.tolist())
-                #     data_train_np[label_key].append(label)
-                # elif ds == "validation":
-                #     data_validation_np[wav_key].append(wav_np.T.tolist())
-                #     data_validation_np[label_key].append(label)
-                # else:
-                #     data_test_np[wav_key].append(wav_np.T.tolist())
-                #     data_test_np[label_key].append(label)
+                if self.save_json:
+                    if ds == "training":
+                        data_train_np[wav_key].append(wav_np.tolist())
+                        data_train_np[label_key].append(label)
+                    elif ds == "validation":
+                        data_validation_np[wav_key].append(wav_np.tolist())
+                        data_validation_np[label_key].append(label)
+                    else:
+                        data_test_np[wav_key].append(wav_np.tolist())
+                        data_test_np[label_key].append(label)
 
     def get_processed_dataset(self, type):
         processed_dataset = self.processed_dataset
@@ -180,10 +184,11 @@ class AudioProcessor(object):
         y_train = np.array(processed_dataset["y_training"])
         y_validation = np.array(processed_dataset["y_validation"])
         y_test = np.array(processed_dataset["y_testing"])
-        # with open(JSON_TRAIN_PATH, "w") as fp:
-        #     json.dump(data_train_np, fp, indent=4)
-        # with open(JSON_VALID_PATH, "w") as fp:
-        #     json.dump(data_validation_np, fp, indent=4)
-        # with open(JSON_TEST_PATH, "w") as fp:
-        #     json.dump(data_test_np, fp, indent=4)
-        return (X_train, X_validation, X_test, y_train, y_validation, y_test)
+        if self.save_json:
+            with open(JSON_TRAIN_PATH, "w") as fp:
+                json.dump(data_train_np, fp, indent=4)
+            with open(JSON_VALID_PATH, "w") as fp:
+                json.dump(data_validation_np, fp, indent=4)
+            with open(JSON_TEST_PATH, "w") as fp:
+                json.dump(data_test_np, fp, indent=4)
+            return (X_train, X_validation, X_test, y_train, y_validation, y_test)
